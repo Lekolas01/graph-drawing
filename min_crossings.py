@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 from shapely.geometry import LineString
 import graphviz
+from argparse import ArgumentParser
 
 
 class MinCrossingSolver:
@@ -117,10 +118,13 @@ def load_problem(f: Path) -> MinCrossingSolver:
 
 
 if __name__ == "__main__":
-    problem_name = "test-1"
-    problem_file_1 = Path(f"problems/{problem_name}.json")
+    parser = ArgumentParser()
+    parser.add_argument("problem_name")
+    args = parser.parse_args()
+
+    problem_file_1 = Path(f"problems/{args.problem_name}.json")
     solver = load_problem(problem_file_1)
     solution = solver.solve()
     final_score = solver.score(solution)
     print(f"{final_score = }")
-    solver.visualize(solution, f"solutions/{problem_name}/graph.gv")
+    solver.visualize(solution, f"solutions/{args.problem_name}/graph.gv")
