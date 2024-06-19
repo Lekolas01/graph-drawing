@@ -1,50 +1,68 @@
 import json
+import math
 import numpy as np
 from pathlib import Path
 from shapely.geometry import LineString
 import graphviz
 from argparse import ArgumentParser
+from itertools import permutations
+import networkx as nx
 
 
 class MinCrossingSolver:
     """Class for solving Minimum Crossing Problem"""
 
-    def __init__(self, n_vertices: int, edges: np.ndarray, points: np.ndarray):
-        self.e = edges  # (N, 2) - {source id, target id} N times
+    def __init__(self, G: nx.Graph, points: np.ndarray):
         self.p = points  # (N, 2) - {x coord, y coord} N times
 
-        self.n_vertices = n_vertices  # vertices are implicitly indexed with 0 to n - 1
-        self.n_edges = self.e.shape[0]
+        self.G = G
+        self.n_nodes = len(self.G.nodes)
+        self.n_edges = len(self.G.edges)
         self.n_points = self.p.shape[0]
 
-    def __str__(self):
-        ans = f"Graph(\n"
-        ans += f"edges = {str(self.e)}\n"
-        ans += f"points = {str(self.p)}\n)\n"
-        return ans
+    def _any_solution(self) -> np.ndarray:
+        return np.arange(len(self.G.nodes), dtype=int)
+
+    def _brute_force_solution(self) -> np.ndarray:
+        solutions = np.array(
+            list(permutations(np.arange(self.n_points), r=self.n_nodes))
+        )
+        min_score, min_solution = float("inf"), np.empty(0)
+        for solution in solutions:
+            score = self.score(solution)
+            if score >= min_score:
+                continue
+            min_score = score
+            min_solution = solution
+
+        return min_solution
 
     def solve(self) -> np.ndarray:
         """Solve the minimum crossing problem with the given graph settings. For now, it just returns any solution."""
-        return np.arange(self.n_vertices, dtype=int)
+        return self._brute_force_solution()
 
-    def score(self, drawing: np.ndarray) -> int:
+    def score(self, solution: np.ndarray) -> int:
         """Score calculation as defined in https://mozart.diei.unipg.it/gdcontest/2024/live/"""
+        pm = self.p[solution]
         ans = 0
-        for i, edge1 in enumerate(self.e):
-            for edge2 in self.e[i + 1 :]:
-                ans += self.cross(edge1, edge2)
+        for i, edge1 in enumerate(self.G.edges):
+            e1 = np.array(edge1)
+            for edge2 in list(self.G.edges)[i + 1 :]:
+                e2 = np.array(edge2)
+                edge_score = self.cross(pm, e1, e2)
+                ans += edge_score
         return ans
 
-    def cross(self, e1: np.ndarray, e2: np.ndarray) -> int:
-        line1 = LineString(self.p[e1])
-        line2 = LineString(self.p[e2])
+    def cross(self, points: np.ndarray, e1: np.ndarray, e2: np.ndarray) -> int:
+        line1 = LineString(points[e1])
+        line2 = LineString(points[e2])
         int_pt = line1.intersection(line2)
 
         # case 1a: no common point
         if int_pt.geom_type == "LineString" and int_pt.length == 0.0:
             return 0
 
-        temp = np.concatenate([self.p[e1], self.p[e2]])
+        temp = np.concatenate([points[e1], points[e2]])
         n_overlaps = sum([all(int_pt.coords[0] == temp[i]) for i in range(4)])
 
         # case 1b: exactly one common point and that point is an endpoint of both segments
@@ -59,11 +77,11 @@ class MinCrossingSolver:
         # case 3b: all edge end points lie on one line, in the order src1 - src2 - target1 - target2
         # case 3c: all edge end points lie on one line, in the order src1 - src2 - target2 - target1
         # case 3d: all edge end points lie on one line, with two of the end points being the same point
-        return self.n_vertices
+        return self.n_nodes
 
-    def visualize(self, drawing: np.ndarray, path: str):
+    def visualize(self, solution: np.ndarray, path: str):
         """Draw a graph for a given solution, and save it."""
-        assert len(drawing) == self.n_vertices
+        assert len(solution) == self.n_nodes
 
         dot = graphviz.Graph(comment="Solution", engine="neato")
         # draw available points as squares
@@ -79,8 +97,8 @@ class MinCrossingSolver:
             )
 
         # draw nodes on top of the available points
-        for i in range(self.n_vertices):
-            p = self.p[drawing[i]]
+        for i in range(self.n_nodes):
+            p = self.p[solution[i]]
             dot.node(
                 f"N_{i + 1}",
                 f"{i + 1}",
@@ -92,7 +110,7 @@ class MinCrossingSolver:
             )
 
         # draw edges
-        for i, (source, target) in enumerate(self.e):
+        for i, (source, target) in enumerate(self.G.edges):
             dot.edge(f"N_{source + 1}", f"N_{target + 1}")
 
         # draw x and y axis
@@ -103,18 +121,24 @@ def load_problem(f: Path) -> MinCrossingSolver:
     with open(f) as json_file:
         x = json.load(json_file)
 
-        n_vertices = len(x["nodes"])
+        G = nx.Graph()
+        G.add_nodes_from(range(len(x["nodes"])))
 
-        edges = x["edges"]
-        sorted_edges = []
-        for edge in edges:
-            sorted_edges.append([min(edge.values()), max(edge.values())])
-        sorted_edges.sort(key=lambda x: (x[0], x[1]))
-        e = np.array(sorted_edges)
-        points = sorted(x["points"], key=lambda x: x["id"])
+        for edge in x["edges"]:
+            G.add_edge(edge["source"], edge["target"])
+        points = x["points"]
         p = np.array([[t["x"] for t in points], [t["y"] for t in points]]).T
 
-        return MinCrossingSolver(n_vertices, e, p)
+        return MinCrossingSolver(G, p)
+
+
+def n_checks(n: int, e: int, p: int) -> int:
+    assert n >= 0 and e >= 0 and p >= 0
+    return int(math.factorial(p) / (math.factorial(p - n)) * e * (e - 1) / 2)
+
+
+def inspect_problem(s: MinCrossingSolver):
+    print(f"Maximum number of checks: {n_checks(s.n_nodes, s.n_edges, s.n_points)}")
 
 
 if __name__ == "__main__":
@@ -124,6 +148,7 @@ if __name__ == "__main__":
 
     problem_file_1 = Path(f"problems/{args.problem_name}.json")
     solver = load_problem(problem_file_1)
+    inspect_problem(solver)
     solution = solver.solve()
     final_score = solver.score(solution)
     print(f"{final_score = }")
