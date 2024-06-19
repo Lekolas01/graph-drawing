@@ -38,6 +38,7 @@ class MinCrossingSolver:
         return min_solution
 
     def solve(self) -> np.ndarray:
+        self.n_checks = 0
         """Solve the minimum crossing problem with the given graph settings. For now, it just returns any solution."""
         return self._brute_force_solution()
 
