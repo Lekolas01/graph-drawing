@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import numpy as np
 from pathlib import Path
 from shapely.geometry import LineString
@@ -7,6 +8,7 @@ import graphviz
 from argparse import ArgumentParser
 from itertools import permutations
 import networkx as nx
+import time
 
 
 class MinCrossingSolver:
@@ -19,6 +21,8 @@ class MinCrossingSolver:
         self.n_nodes = len(self.G.nodes)
         self.n_edges = len(self.G.edges)
         self.n_points = self.p.shape[0]
+
+        assert self.n_nodes >= 0 and self.n_edges >= 0 and self.n_points >= 0
 
     def _any_solution(self) -> np.ndarray:
         return np.arange(len(self.G.nodes), dtype=int)
@@ -34,13 +38,11 @@ class MinCrossingSolver:
                 continue
             min_score = score
             min_solution = solution
-
         return min_solution
 
     def solve(self) -> np.ndarray:
-        self.n_checks = 0
         """Solve the minimum crossing problem with the given graph settings. For now, it just returns any solution."""
-        return self._brute_force_solution()
+        return self._any_solution()
 
     def score(self, solution: np.ndarray) -> int:
         """Score calculation as defined in https://mozart.diei.unipg.it/gdcontest/2024/live/"""
@@ -117,6 +119,21 @@ class MinCrossingSolver:
         # draw x and y axis
         dot.render(path)
 
+    def n_checks(self) -> int:
+        return int(
+            math.factorial(self.n_points)
+            / (math.factorial(self.n_points - self.n_nodes))
+            * self.n_edges
+            * (self.n_edges - 1)
+            / 2
+        )
+
+    def inspect_problem(self):
+        print(f"Number of nodes: {self.n_nodes}")
+        print(f"Number of edges: {self.n_edges}")
+        print(f"Number of points: {self.n_points}")
+        # print(f"Maximum number of checks: {self.n_checks()}")
+
 
 def load_problem(f: Path) -> MinCrossingSolver:
     with open(f) as json_file:
@@ -133,24 +150,29 @@ def load_problem(f: Path) -> MinCrossingSolver:
         return MinCrossingSolver(G, p)
 
 
-def n_checks(n: int, e: int, p: int) -> int:
-    assert n >= 0 and e >= 0 and p >= 0
-    return int(math.factorial(p) / (math.factorial(p - n)) * e * (e - 1) / 2)
-
-
-def inspect_problem(s: MinCrossingSolver):
-    print(f"Maximum number of checks: {n_checks(s.n_nodes, s.n_edges, s.n_points)}")
-
-
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    parser.add_argument("problem_name")
-    args = parser.parse_args()
+    fs = [f for f in os.listdir(f"problems/") if str.endswith(f, ".json")]
+    fs.sort()
+    solvers = {
+        problem_name: load_problem(Path("problems", problem_name))
+        for problem_name in fs
+    }
 
-    problem_file_1 = Path(f"problems/{args.problem_name}.json")
-    solver = load_problem(problem_file_1)
-    inspect_problem(solver)
-    solution = solver.solve()
-    final_score = solver.score(solution)
-    print(f"{final_score = }")
-    solver.visualize(solution, f"solutions/{args.problem_name}/graph.gv")
+    print(f"----------- Inspecting Problems... -----------")
+    for problem_name, solver in solvers.items():
+        print(f"Problem name: {problem_name}")
+        solver.inspect_problem()
+        print()
+
+    print(f"----------- Solving Problems... -----------")
+    for problem_name, solver in solvers.items():
+        print(f"Problem name: {problem_name}")
+        solution = solver.solve()
+
+        start = time.perf_counter()
+        final_score = solver.score(solution)
+        end = time.perf_counter()
+        print(f"{final_score = }")
+        print(f"Runtime for score calculation: {(end - start):.2} sec")
+        solver.visualize(solution, f"solutions/{problem_name}/graph.gv")
+        print()
